@@ -1,0 +1,420 @@
+
+
+---
+title: "LOAN PREDICTION"
+author: "Group 1: Monde Mwansa, Kitso Tshenyego, Amanda Mdluli, Asanda Xulu, Amelia Hendricks"
+date: "2024-04-12"
+output: html_document
+---
+# 1. IMPORTING LIBRARIES AND LOADING DATA
+
+```{r setup, include=FALSE}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(readr)
+require(MASS)# contains the glm function for estimating parameters
+require(ResourceSelection)# Hosmer and Lemeshow goodness of fit (GOF) test
+require(rms)
+library(kernlab)
+library(ggplot2)
+library(e1071)
+library(caret) 
+library(tidyverse)
+library(caTools) 
+
+
+loan_data <- read_csv("C:/Users/Admin/Downloads/loan_data.csv")
+
+```
+
+# 2. EXPLORATORY DATA ANALYSIS
+
+## 2.1 Basic EDA
+```{r BasiscEda,echo=FALSE}
+head(loan_data)#Display the first few rows.
+colnames(loan_data)# Retrieves the column names.
+glimpse(loan_data)#summary of the structure of the dataset,including the data types and the first few observations.
+sapply(loan_data, class)#To class function to each column, and returning the class (data type) of each column.
+summary(loan_data)#summary of the statistical properties of the dataset.
+sum(is.na(loan_data))#calculates the total number of missing values in the dataset.
+str(loan_data)#provides an overall structure of the dataset.
+```
+
+# 2.2 COLUMN COUNTS
+```{r counts,echo=FALSE}
+#we analyze the categorical variables in the "loan_data" dataset to summarize the distribution of different categories within each variable.
+#To help us understand the composition of categorical variables and identify any potential patterns or imbalances in the data
+head(loan_data)
+loan_data%>%count(Gender)
+loan_data %>% count(Married)
+loan_data %>% count(Education)
+loan_data %>% count(Property_Area)
+loan_data %>% count(Self_Employed)
+##############################################################################
+# Calculates the mean loan amount by both 'Married' and 'Gender' using the groupby and mean.
+mean_loanAmount_by_gender_and_marrige <- aggregate(LoanAmount ~ Married + Gender, loan_data, mean)
+mean_loanAmount_by_gender_and_marrige
+```
+# 3. Preprocessing the data
+## 3.1 HANDLING MISSING VALUES
+
+```{r pressure, echo=FALSE}
+#Missing values
+
+# we are creating a vector called "missing_values" that contains the sum of missing values for each column,then display the vector.
+
+missing_values <- sapply(loan_data,function(x) sum(is.na(x)))
+missing_values
+
+
+###################################################
+
+#Now we addresses missing values in specific columns by replacing them with column means. After the replacement,then recalculates the number of missing values for each column and provides the total number of missing values in the entire dataset.
+
+loan_data$Gender[is.na(loan_data$Gender)] <- "Unknown"
+loan_data$Dependents[is.na(loan_data$Dependents)] <- 0
+loan_data$Self_Employed[is.na(loan_data$Self_Employed)] <- "No"
+loan_data$Loan_Amount_Term[is.na(loan_data$Loan_Amount_Term)] <- mean(loan_data$Loan_Amount_Term, na.rm = TRUE)
+loan_data$Credit_History[is.na(loan_data$Credit_History)] <- mean(loan_data$Credit_History, na.rm = TRUE)
+missing_values <- sapply(loan_data,function(x) sum(is.na(x)))
+missing_values
+sum(is.na(loan_data))
+
+
+
+```
+Note the first block shows the amount of missing values are in each column.
+
+
+The second block shows that all the columns have been imputed correctly.
+
+
+
+
+## 3.2 Removing Outliers
+
+
+```{r outliers, echo=FALSE}
+
+# Define the function to remove outliers
+remove_outliers <- function(x) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = TRUE)
+  H <- 1.5 * IQR(x, na.rm = TRUE)
+  x[x > (qnt[2] + H) | x < (qnt[1] - H)] <- NA
+  x
+}
+
+# Remove outliers from LoanAmount
+#By applying the function to "LoanAmount" and "ApplicantIncome"
+
+loan_data$LoanAmount <- remove_outliers(loan_data$LoanAmount)
+
+# Create boxplot without outliers
+#To to visualize the distributions of "LoanAmount" and "ApplicantIncome" without outliers.
+
+ggplot(loan_data, aes(x = "", y = LoanAmount)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(x = "", y = "LoanAmount") +
+  theme_minimal() +
+  ggtitle("Boxplot of LoanAmount (without outliers)")
+
+# Remove outliers from Applicant income
+loan_data$LoanAmount <- remove_outliers(loan_data$ApplicantIncome)
+
+# Create boxplot without outliers
+ggplot(loan_data, aes(x = "", y = ApplicantIncome)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(x = "", y = "ApplicantIncome") +
+  theme_minimal() +
+  ggtitle("Boxplot of ApplicantIncome (without outliers)")
+
+#Creating histograms to show the distributions of "LoanAmount" and "ApplicantIncome" after removing outliers.
+
+ggplot(loan_data, aes(x = LoanAmount)) +
+  geom_histogram(fill = "lightblue", color = "black", bins = 30) +
+  labs(x = "LoanAmount", y = "Frequency") +
+  theme_minimal() +
+  ggtitle("Distribution of LoanAmount")
+
+ggplot(loan_data, aes(x = ApplicantIncome)) +
+  geom_histogram(fill = "lightblue", color = "black", bins = 30) +
+  labs(x = "LoanAmount", y = "Frequency") +
+  theme_minimal() +
+  ggtitle("Distribution of Applicant Income")
+```
+
+# 4. DATA VISUALISATION 
+
+```{r EDA,echo=FALSE}
+library(ggplot2)
+
+#Counting Loan_Statusand creates a data frame to store the counts,It then calculates the percentage of each category and visualizes the distribution of loan approvals
+loan_data %>% count(Loan_Status)
+loan_status_counts <- data.frame(Loan_Status=
+                                   c("Approved","Not Approved"),
+                                 Count = c(271,110))
+loan_status_counts$Percentage <- loan_status_counts$Count / sum(loan_status_counts$Count) * 100
+
+ggplot(loan_status_counts,aes(x="",y=Count,fill=Loan_Status)) + 
+  geom_bar(stat = "identity") +
+  coord_polar(theta = "y") +
+  labs(title = "Distribution of Loans") +
+  theme_void() +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), position = position_stack(vjust = 0.5))
+
+fig1 <- ggplot(loan_data, aes(x = Loan_Status, y = LoanAmount)) +
+  geom_bar(stat = "summary", fun = "mean", fill = "orange") +
+  labs(title = "LoanAmount vs Loan_Status") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14))
+print(fig1)
+
+fig2 <- ggplot(loan_data,aes(x = Loan_Status, y = Loan_Amount_Term)) + 
+  geom_bar(stat = "summary", fun = "mean", fill = "orange") +
+  labs(title = "Loan Amount Term vs Loan Status") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14))
+print(fig2)
+
+fig3 <- ggplot(loan_data,aes(x = Loan_Status, y = Credit_History)) + 
+  geom_bar(stat = "summary", fun = "mean", fill = "orange") +
+  labs(title = "Credit History vs Loan Status") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14))
+print(fig3)
+
+fig4 <- ggplot(loan_data,aes(x = Loan_Status, y = CoapplicantIncome)) + 
+  geom_bar(stat = "summary", fun = "mean", fill = "orange") +
+  labs(title = "Co-applicant Income vs Loan Status") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14))
+print(fig4)
+
+###################################################
+
+#Creating multiple to comparing "Property_Area", "Education", "Credit_History", and "Self_Employed" with "Loan_Status" to visualize the distribution of these variables in relation to loan approval status.
+
+tbl <- with(loan_data, table(Loan_Status, Property_Area))
+ggplot(as.data.frame(tbl), aes(factor(Property_Area), Freq, fill = Loan_Status)) +     
+  geom_col(position = 'dodge')
+
+tbl2 <- with(loan_data, table(Loan_Status, Education))
+ggplot(as.data.frame(tbl2), aes(factor(Education), Freq, fill = Loan_Status)) +     
+  geom_col(position = 'dodge')
+
+tbl3 <- with(loan_data, table(Loan_Status, Property_Area))
+ggplot(as.data.frame(tbl3), aes(factor(Property_Area), Freq, fill = Loan_Status)) +     
+  geom_col(position = 'dodge')
+
+tbl3 <- with(loan_data, table(Loan_Status, Credit_History))
+ggplot(as.data.frame(tbl3), aes(factor(Credit_History), Freq, fill = Loan_Status)) +     
+  geom_col(position = 'dodge')
+
+tbl4 <- with(loan_data, table(Loan_Status, Self_Employed))
+ggplot(as.data.frame(tbl4), aes(factor(Self_Employed), Freq, fill = Loan_Status)) +     
+  geom_col(position = 'dodge')
+###################################################
+
+#Creating boxplots for "LoanAmount" and "ApplicantIncome" to visually identify any outliers in the data.
+
+loan_data$LoanAmount = loan_data$LoanAmount * 1000
+#Checking for outliers
+ggplot(loan_data, aes(x = "", y = LoanAmount)) +
+  geom_boxplot(fill = "lightblue") +  # Do not display outliers in the boxplot
+  geom_jitter(aes(y = LoanAmount), color = "red", width = 0.2, alpha = 0.5) +  # Display outliers as points
+  labs(x = "", y = "LoanAmount") +
+  theme_minimal() +
+  ggtitle("Boxplot of LoanAmount with Outliers")
+
+ggplot(loan_data, aes(x = "", y = ApplicantIncome)) +
+  geom_boxplot(fill = "lightblue") +  # Do not display outliers in the boxplot
+  geom_jitter(aes(y = ApplicantIncome), color = "red", width = 0.2, alpha = 0.5) +  # Display outliers as points
+  labs(x = "", y = "ApplicantIncome") +
+  theme_minimal() +
+  ggtitle("Boxplot of Applicant Income with Outliers")
+
+```
+
+
+
+#  MODEL BUILDING AND ANALYSES
+
+## 4.1 Logistic Regression
+
+### 4.1.1 Variable extraction, renaming and descriptive statistics
+```{r LogitvarExtraction,echo=FALSE}
+#View(loan_data)
+#We are preparing the data for a logistic regression analysis by selecting the predictor and outcome variables and ensuring that the outcome variable is in a suitable format for logistic regression modeling.
+
+Y <-cbind(loan_data$Loan_Status)
+X <- cbind(loan_data$Credit_History, loan_data$Property_Area, loan_data$Gender, loan_data$Married,loan_data$Education)
+summary(cbind(X,Y))
+
+Y=factor(Y,level=c("Y","N"),labels=c(1,0))
+
+```
+
+
+
+### 4.1.2 Estimating parameters of the logistic model
+```{r logistic, echo=FALSE}
+#fitting a logistic regression model to the data and provide a summary of the model's estimated parameters.
+
+logit<- glm(Y ~ loan_data$Credit_History +  loan_data$Property_Area + loan_data$Gender+ loan_data$Married+loan_data$Education, family=binomial (link = "logit"), data =loan_data )
+
+
+#get the summary of the logit 
+summary(logit) 
+
+```
+
+
+### 4.1.7 Comparing predicted values against observations
+```{r predictLogit, echo=FALSE}
+#Assessing how well the logistic regression model's predictions align with the actual observed outcomes.
+
+plogit<- predict(logit, type="response")
+summary(plogit)
+head(cbind(Y,plogit))
+tail(cbind(Y,plogit))
+```
+
+
+### 4.1.8 Confusion matrix for Logistic model
+```{r cmatLogit, echo=FALSE}
+#Evaluating the performance of the logistic regression model by analyzing its predictions and assessing its accuracy.
+# Predictions on the full data
+
+cmat<-table(true = Y, pred = round(fitted(logit))) 
+cmat
+
+
+# Calculate Accuracy
+accuracy<-((cmat[1,1]+cmat[2,2])/length(logit$y))*100
+print(paste("Accuracy:", round(accuracy, 2), "%"))
+
+# Error Rate
+error_rate <- 100 - accuracy
+print(paste("Error Rate:", round(error_rate, 2), "%"))
+
+# Calculate Precision
+precision <- cmat[2, 2] / sum(cmat[, 2])* 100 
+print(paste("Precision:", round(precision, 2),"%"))
+
+# Calculate Recall
+recall <- cmat[2, 2] / sum(cmat[2, ]) *100 
+print(paste("Recall:", round(recall, 2),"%"))
+
+# Calculate F1 Score
+f1_score <- 2 * (precision * recall) / (precision + recall)
+print(paste("F1 Score:", round(f1_score, 2),"%"))
+```
+
+# SVM
+
+```{r preProcessSVM, echo=FALSE}
+my_data<-loan_data
+
+#converting categorical variables
+my_data$Married=factor(my_data$Married,level=c("Yes","No"),labels=c(1,0))
+my_data
+
+my_data$Loan_Status=factor(my_data$Loan_Status,level=c("Y","N"),labels=c(1,0))
+my_data
+
+
+# Map Married  to 0 and 1
+# Map Loan_Status to 0 and 1
+my_data$Married <- ifelse(my_data$Married == 1, 1, 0)
+my_data
+
+my_data$Self_Employed=factor(my_data$Self_Employed,level=c("No","Yes"),labels=c(0,1))
+my_data
+
+
+# Assign 0 to "Not Graduate" and 1 to "Graduate"
+my_data$Education <- as.integer(my_data$Education == "Graduate")
+
+
+
+#onehot encoding for property area column 
+# Convert Property_Area to dummy variables
+dummy_vars <- model.matrix(~ Property_Area - 1, data = my_data)
+
+# Rename the dummy variables
+colnames(dummy_vars) <- gsub("Property_Area", "", colnames(dummy_vars))
+
+# Add the dummy variables to the dataset
+my_data <- cbind(my_data, dummy_vars)
+
+# Drop the original Property_Area column
+my_data <- my_data[, -which(names(my_data) == "Property_Area")]
+
+# Convert Gender to columns to numeric
+my_data$Married <- as.numeric(my_data$Married)
+my_data$Self_Employed <- as.numeric(my_data$Self_Employed)
+my_data$Dependents<- as.numeric(my_data$Dependents)
+my_data$Rural<- as.numeric(my_data$Rural)
+my_data$Semiurban<- as.numeric(my_data$Semiurban)
+my_data$Urban<- as.numeric(my_data$Urban)
+
+
+# Replace missing values with mean of each specific column
+for (col in colnames(my_data)) {
+  my_data[is.na(my_data[[col]]), col] <- mean(my_data[[col]], na.rm = TRUE)
+}
+
+```
+
+
+
+
+
+```{r FittingSVM,echo =FALSE}
+
+
+X <- my_data[, c(  'Credit_History',"Rural", "Semiurban","Urban" , 'Gender','Married', 'Education')]
+Y <- my_data$Loan_Status
+
+# Data for SVM
+data_svm <- data.frame(Y, X)
+
+scaled_data <- preProcess(data_svm, method = c("range"))$scaled
+
+svm_model <- svm(data_svm$Y ~ ., data = data_svm, kernel = "linear")
+svm_model
+
+
+```
+
+```{r predictSVM,echo=FALSE}
+# Predictions on the full data
+predictions <- predict(svm_model, data_svm)
+
+# Confusion Matrix
+cmat <- table(true = data_svm$Y, pred = predictions)
+print("Confusion Matrix for SVM:")
+print(cmat)
+
+# Calculate Accuracy
+accuracy <- sum(diag(cmat)) / sum(cmat) * 100
+print(paste("Accuracy:", round(accuracy, 2), "%"))
+
+# Error Rate
+error_rate <- 100 - accuracy
+print(paste("Error Rate:", round(error_rate, 2), "%"))
+
+# Calculate Precision
+precision <- cmat[2, 2] / sum(cmat[, 2]) *100 
+print(paste("Precision:", round(precision, 2),"%"))
+
+# Calculate Recall
+recall <- cmat[2, 2] / sum(cmat[2, ])*100 
+print(paste("Recall:", round(recall, 2),"%"))
+
+# Calculate F1 Score
+f1_score <- 2 * (precision * recall) / (precision + recall)
+print(paste("F1 Score:", round(f1_score, 2),"%"))
+
+```
